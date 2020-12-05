@@ -1,0 +1,454 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+Binyong Liang 
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+tb<-read_csv('HaitiPixels.csv')
+#View(tb)
+attach(tb)
+classcate<-as.factor(Class)
+contrasts(classcate)
+summary(classcate)
+is.factor(classcate)
+levels(classcate)
+new.levels <- c("Blue Tarp", "aNBT","aNBT","aNBT","aNBT")
+cate2<-factor(new.levels[classcate])
+levels(cate2)
+summary(cate2)
+tb["cate"]<-cate2
+attach(tb)
+summary(tb)
+
+#data split 50/50, this is for ROC and AUC part
+set.seed(1)
+train <- sample(1:nrow(tb), nrow(tb)/2)
+training <- tb[train,]
+testing <- tb[-train,]
+summary(training$cate)
+summary(testing$cate)
+
+#with 10-fold CV
+n = nrow(tb)
+set.seed(2020)
+permutation = sample(n)
+slice = n/10
+```
+
+```{r, warning=FALSE}
+#logistic regression
+
+#with 10-fold CV
+acc=0
+for (i in 1:10) {
+    test = permutation[((i-1)* slice +1) : (i*slice)]
+    train = c(permutation[1:((i-1) * slice)], permutation[(i * slice + 1):n])
+    glm.fit = glm(cate~Red+Green+Blue, data=tb, subset=train, family=binomial)
+    glm.probs = predict(glm.fit, newdata=tb[test,], type ="response")
+    glm.pred=rep("aNBT",nrow(tb[test,]))
+    glm.pred[glm.probs>.5]="Blue Tarp"
+    acc = acc + sum(glm.pred==tb[test,]$cate)/length(test) 
+}
+acc = acc/10
+acc
+
+#ROC and AUC
+library(ROCR)
+glm.fits=glm(cate~Red+Green+Blue,data=training,family=binomial)
+glm.probs=predict(glm.fits,newdata=testing,type="response")
+pred <- prediction(glm.probs,testing$cate)
+roc_result <- performance(pred,'tpr','fpr')
+plot(roc_result, main='ROC Curve of Blue Tarps with LR')
+lines(x= c(0,1), y= c(0,1), col = 'red')
+auc<-performance(pred, measure = "auc")
+auc@y.values
+
+```
+
+```{r, warning=FALSE}
+#lda
+library(MASS)
+
+#with 10-fold CV
+acc=0
+for (i in 1:10) {
+    test = permutation[((i-1)* slice +1) : (i*slice)]
+    train = c(permutation[1:((i-1) * slice)], permutation[(i * slice + 1):n])
+    lda.fit = lda(cate~Red+Green+Blue, data=tb, subset=train)
+    lda.pred=predict(lda.fit,tb[test,])
+    acc = acc + sum(lda.pred$class==tb[test,]$cate)/length(test) 
+}
+acc = acc/10
+acc
+
+#ROC and AUC
+lda.fit=lda(cate~Red+Green+Blue,data=training)
+lda.pred=predict(lda.fit, testing)
+
+pred <- prediction(lda.pred$posterior[,2],testing$cate)
+roc_result <- performance(pred,'tpr','fpr')
+plot(roc_result, main='ROC Curve of Blue Tarps with lda')
+lines(x= c(0,1), y= c(0,1), col = 'red')
+auc<-performance(pred, measure = "auc")
+auc@y.values
+
+```
+
+```{r, warning=FALSE}
+#qda
+
+#10fold CV
+acc=0
+for (i in 1:10) {
+    test = permutation[((i-1)* slice +1) : (i*slice)]
+    train = c(permutation[1:((i-1) * slice)], permutation[(i * slice + 1):n])
+    qda.fit = qda(cate~Red+Green+Blue, data=tb, subset=train)
+    qda.pred=predict(qda.fit,tb[test,])
+    acc = acc + sum(qda.pred$class==tb[test,]$cate)/length(test) 
+}
+acc = acc/10
+acc
+
+qda.fit=qda(cate~Red+Green+Blue,data=training)
+qda.pred<-predict(qda.fit,testing)
+pred <- prediction(qda.pred$posterior[,2],testing$cate)
+roc_result <- performance(pred,'tpr','fpr')
+plot(roc_result, main='ROC Curve of Blue Tarps with qda')
+lines(x= c(0,1), y= c(0,1), col = 'red')
+auc<-performance(pred, measure = "auc")
+auc@y.values
+
+
+```
+
+```{r message=FALSE, warning=FALSE}
+#KNN
+#10fold CV for K values from 1, 3, 5, ..., 25 (13 K-values total) 
+library(class)
+acc<-numeric(13)
+for (j in 0:12) {
+  acc1<-0
+  for (i in 1:10) {
+    attach(tb)
+    i=1
+    test = permutation[((i-1)* slice +1) : (i*slice)]
+    train = c(permutation[1:((i-1) * slice)], permutation[(i * slice + 1):n])
+    train.X=cbind(Red,Green,Blue)[train,]
+    test.X=cbind(Red,Green,Blue)[test,]
+    train.cate=cate[train]
+    knn.pred=knn(train.X,test.X,train.cate,k=2*j+1)
+    acc1 = acc1 + sum(knn.pred==cate[test])/length(test) 
+  }
+  acc[j+1] = acc1/10
+}
+for (j in 0:12) {
+  print(2*j+1) 
+  print(acc[j+1])
+}
+
+#AUC and ROC
+
+train.X=training[-c(1,5)]
+test.X=testing[-c(1,5)]
+train.cate=training$cate
+knn.pred=knn(train.X,test.X,train.cate,k=3)
+table(knn.pred, testing$cate)
+mean(knn.pred==testing$cate)
+knn.prob=knn(train.X,test.X,train.cate,k=3, prob=TRUE,use.all=TRUE)
+
+knnprob = rep(0,nrow(testing))
+
+for (i in 1:nrow(testing)) {
+    if (knn.prob[i]=='aNBT') {
+        knnprob[i] = attributes(knn.prob)$prob[i]
+    } else {
+        knnprob[i] = 1- attributes(knn.prob)$prob[i]
+        }
+}
+
+pred <- prediction(1-knnprob,testing$cate)
+roc_result <- performance(pred,'tpr','fpr')
+plot(roc_result, main='ROC Curve of Blue Tarps with knn')
+lines(x= c(0,1), y= c(0,1), col = 'red')
+auc<-performance(pred, measure = "auc")
+auc@y.values
+```
+
+```{r, warning=FALSE}
+#Random Forest 
+library(randomForest)
+#a tree size of 100 appears to be large enough.
+acc<-numeric(100)
+for (j in 1:100) {
+  set.seed(1)
+  rffit=randomForest(cate~Red+Green+Blue,data=tb,mtry=1,ntree=j)
+  pred.rf = predict(rffit,newdata=tb)
+  acc[j]=mean(pred.rf==tb$cate)
+  }
+acc
+plot(acc, col="white",xlab="Number of Trees")
+lines(acc,col="black")
+
+acc<-numeric(3)
+for (j in 1:3) {
+  acc1=0
+  for (i in 1:10) {
+    test = permutation[((i-1)* slice +1) : (i*slice)]
+#    train = c(permutation[1:((i-1) * slice)], permutation[(i * slice + 1):n])
+    rffit=randomForest(cate~Red+Green+Blue,data=tb[-test,],mtry=j,ntree=100)
+    rf.pred=predict(rffit,newdata=tb[test,])
+    acc1 = acc1 + mean(rf.pred==tb[test,]$cate)
+  }
+  acc[j] = acc1/10
+}
+acc
+
+#AUC
+#data split 50/50, this is for ROC and AUC part for KNN
+set.seed(1)
+rffit=randomForest(cate~Red+Green+Blue,data=training,mtry=1,ntree=100)
+rf.pred <- predict(rffit,testing,type="prob")
+pred <- prediction(1-rf.pred[,1],testing$cate)
+roc_result <- performance(pred,'tpr','fpr')
+plot(roc_result, main='ROC Curve of Blue Tarps with RF')
+lines(x= c(0,1), y= c(0,1), col = 'red')
+auc<-performance(pred, measure = "auc")
+auc@y.values
+```
+
+```{r, warning=FALSE}
+#SVM
+#linear kernel
+library(e1071)
+set.seed(1)
+svmfit=svm(cate~Red+Green+Blue,data=tb, kernel="linear", cost=0.001)
+svmfit
+summary(svmfit)
+tune.out=tune(svm,cate~Red+Green+Blue,data=tb,kernel="linear",ranges=list(cost=c(0.001, 0.01, 0.1, 1,5,10)))
+summary(tune.out)
+bestmod<-tune.out$best.model
+summary(bestmod)
+
+#radial kernel
+set.seed(1)
+tuneradial=tune(svm, cate~Red+Green+Blue, data=tb, kernel="radial", ranges=list(cost=c(0.01,0.1,1,5,10),gamma=c(0.1,0.5,1,5)))
+summary(tuneradial)
+bestmod<-tuneradial$best.model
+summary(bestmod)
+tuneradial$best.parameters
+set.seed(1)
+tuneradial2=tune(svm, cate~Red+Green+Blue, data=tb, kernel="radial", ranges=list(cost=c(10,50,100),gamma=c(5,10,20)))
+summary(tuneradial2)
+bestmod<-tuneradial2$best.model
+summary(bestmod)
+#best model: cost=50, gamma=10
+
+#polynomial kernel
+set.seed(1)
+tunepoly=tune(svm,cate~Red+Green+Blue, data=tb, kernel="polynomial", ranges=list(cost=c(0.01,0.1,1,5,10),degree=c(1,2,3,5)))
+summary(tunepoly)
+bestmod<-tunepoly$best.model
+summary(bestmod)
+tunepoly$best.parameters
+
+#best kernel: radial, with cost=50, gamma=10
+#AUC
+svmfit<-svm(cate~Red+Green+Blue, data=training, kernel="radial", cost=50, gamma=10,probability=TRUE)
+svm.pred<-predict(svmfit,testing,probability=TRUE)
+svmprob<-attr(svm.pred,"probabilities")
+svmpred <- prediction(svmprob[,2],testing$cate)
+roc_result <- performance(svmpred,'tpr','fpr')
+plot(roc_result, main='ROC Curve of Blue Tarps with SVM')
+lines(x= c(0,1), y= c(0,1), col = 'red')
+auc<-performance(svmpred, measure = "auc")
+auc@y.values
+```
+
+The next section is for hold-out data. I will use the already determined the best model to refit to the training data set to get the best parameter sets. These models will be fit to the hold-out data.
+
+```{r, warning=FALSE}
+#KNN is K=3
+#knn.pred=knn(train.X,test.X,train.cate,k=3)
+#knn.prob=knn(train.X,test.X,train.cate,k=3, prob=TRUE,use.all=TRUE)
+#LDA:
+lda.fit=lda(cate~Red+Green+Blue,data=tb)
+#QDA:
+qda.fit=qda(cate~Red+Green+Blue,data=tb)
+#Logistic regression:
+lr.fit=glm(cate~Red+Green+Blue,data=tb,family=binomial)
+#Random Forest:
+set.seed(1)
+rf.fit=randomForest(cate~Red+Green+Blue,data=tb,mtry=1,ntree=100)
+#SVM:
+set.seed(1)
+svmfit<-svm(cate~Red+Green+Blue, data=tb, kernel="radial", cost=50, gamma=10,probability=TRUE)
+```
+
+Data clean up and combining
+```{r message=FALSE, warning=FALSE}
+df<-read_delim("Hold+Out+Data/orthovnir067_ROI_Blue_Tarps.txt",skip=7,delim=" ")
+df<-df[,-c(1:7,11:13)]
+colnames(df)<-c("Red","Green","Blue")
+cate <- rep("Blue Tarp",nrow(df))
+df["cate"]<-cate
+
+df2<-read_delim("Hold+Out+Data/orthovnir069_ROI_Blue_Tarps.txt",skip=7,delim=" ")
+df2<-df2[,-c(1:7,11:13)]
+colnames(df2)<-c("Red","Green","Blue")
+cate <- rep("Blue Tarp",nrow(df2))
+df2["cate"]<-cate
+
+
+df3<-read_delim("Hold+Out+Data/orthovnir078_ROI_Blue_Tarps.txt",skip=7,delim=" ")
+df3<-df3[,-c(1:7,11:13)]
+colnames(df3)<-c("Red","Green","Blue")
+cate <- rep("Blue Tarp",nrow(df3))
+df3["cate"]<-cate
+
+
+df4<-read_delim("Hold+Out+Data/orthovnir057_ROI_NON_Blue_Tarps.txt",skip=7,delim=" ")
+df4<-df4[,-c(1:7,11:13)]
+colnames(df4)<-c("Red","Green","Blue")
+cate <- rep("aNBT",nrow(df4))
+df4["cate"]<-cate
+
+df5<-read_delim("Hold+Out+Data/orthovnir067_ROI_NOT_Blue_Tarps.txt",skip=7,delim=" ")
+df5<-df5[,-c(1:7,11:13)]
+colnames(df5)<-c("Red","Green","Blue")
+cate <- rep("aNBT",nrow(df5))
+df5["cate"]<-cate
+
+df6<-read_delim("Hold+Out+Data/orthovnir069_ROI_NOT_Blue_Tarps.txt",skip=7,delim=" ")
+df6<-df6[,-c(1:7,11:13)]
+colnames(df6)<-c("Red","Green","Blue")
+cate <- rep("aNBT",nrow(df6))
+df6["cate"]<-cate
+
+df7<-read_delim("Hold+Out+Data/orthovnir078_ROI_NON_Blue_Tarps.txt",skip=7,delim=" ")
+df7<-df7[,-c(1:7,11:13)]
+colnames(df7)<-c("Red","Green","Blue")
+cate <- rep("aNBT",nrow(df7))
+df7["cate"]<-cate
+
+testdf<-rbind(df,df2,df3,df4,df5,df6,df7)
+nrow(testdf)
+ncol(testdf)
+```
+
+testing on the hold-out data
+```{r}
+#KNN at K=3
+train_X <- tb[-c(1,5)]
+test_X <- testdf[-4]
+train_Y <- tb$cate
+
+knn.prob=knn(train_X,test_X,train_Y,k=3, prob=TRUE,use.all=TRUE)
+confs<-table(knn.prob,testdf$cate)
+mean(knn.prob==testdf$cate)
+(confs[1,1]+confs[2,2])/nrow(testdf)
+
+knnprob = rep(0,nrow(testdf))
+for (i in 1:nrow(testdf)) {
+    if (knn.prob[i]=='aNBT') {
+        knnprob[i] = attributes(knn.prob)$prob[i]
+    } else {
+        knnprob[i] = 1- attributes(knn.prob)$prob[i]
+        }
+}
+
+pred <- prediction(1-knnprob,testdf$cate)
+roc_result <- performance(pred,'tpr','fpr')
+plot(roc_result, main='ROC Curve of Blue Tarps with knn')
+lines(x= c(0,1), y= c(0,1), col = 'red')
+auc<-performance(pred, measure = "auc")
+auc@y.values
+```
+
+LDA
+```{r}
+testdf$Red<-as.numeric(testdf$Red)
+testdf$Green<-as.numeric(testdf$Green)
+testdf$Blue<-as.numeric(testdf$Blue)
+
+lda.pred=predict(lda.fit, testdf)
+names(lda.pred)
+lda.class=lda.pred$class
+confs<-table(lda.class,testdf$cate)
+mean(lda.class==testdf$cate)
+(confs[1,1]+confs[2,2])/nrow(testdf)
+
+pred <- prediction(lda.pred$posterior[,2],testdf$cate)
+roc_result <- performance(pred,'tpr','fpr')
+plot(roc_result, main='ROC Curve of Blue Tarps with lda')
+lines(x= c(0,1), y= c(0,1), col = 'red')
+auc<-performance(pred, measure = "auc")
+auc@y.values
+```
+
+QDA
+```{r}
+qda.pred=predict(qda.fit, testdf)
+qda.class=qda.pred$class
+confs<-table(qda.class,testdf$cate)
+mean(qda.class==testdf$cate)
+(confs[1,1]+confs[2,2])/nrow(testdf)
+
+pred <- prediction(qda.pred$posterior[,2],testdf$cate)
+roc_result <- performance(pred,'tpr','fpr')
+plot(roc_result, main='ROC Curve of Blue Tarps with qda')
+lines(x= c(0,1), y= c(0,1), col = 'red')
+auc<-performance(pred, measure = "auc")
+auc@y.values
+```
+
+Logistic Regression
+```{r}
+lr.fit=glm(cate~Red+Green+Blue,data=tb,family=binomial)
+lr.probs = predict(lr.fit, testdf, type ="response")
+lr.pred=rep("aNBT",nrow(testdf))
+lr.pred[lr.probs>.5]="Blue Tarp"
+confs<-table(lr.pred,testdf$cate)
+mean(lr.pred==testdf$cate)
+(confs[1,1]+confs[2,2])/nrow(testdf)
+
+pred <- prediction(lr.probs,testdf$cate)
+roc_result <- performance(pred,'tpr','fpr')
+plot(roc_result, main='ROC Curve of Blue Tarps with LR')
+lines(x= c(0,1), y= c(0,1), col = 'red')
+auc<-performance(pred, measure = "auc")
+auc@y.values
+```
+
+Random Forest
+```{r}
+rf.pred=predict(rf.fit,newdata=testdf)
+mean(rf.pred==testdf$cate)
+
+rf.pred <- predict(rf.fit,testdf,type="prob")
+pred <- prediction(1-rf.pred[,1],testdf$cate)
+roc_result <- performance(pred,'tpr','fpr')
+plot(roc_result, main='ROC Curve of Blue Tarps with RF')
+lines(x= c(0,1), y= c(0,1), col = 'red')
+auc<-performance(pred, measure = "auc")
+auc@y.values
+```
+
+SVM
+```{r}
+svm.pred<-predict(svmfit,testdf,probability=TRUE)
+mean(svm.pred==testdf$cate)
+
+svmprob<-attr(svm.pred,"probabilities")
+svmpred <- prediction(svmprob[,2],testdf$cate)
+roc_result <- performance(svmpred,'tpr','fpr')
+plot(roc_result, main='ROC Curve of Blue Tarps with SVM')
+lines(x= c(0,1), y= c(0,1), col = 'red')
+auc<-performance(svmpred, measure = "auc")
+auc@y.values
+```
+
+
+
