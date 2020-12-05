@@ -5,5 +5,5 @@ We need to locate displaced people living in makeshift shelters following the de
 Here, we use different models to determine the location of blue-tarps in a series of images taken by aircrafts. 
 The goal is to locate the areas covered by blue-tarp, likely spots for human inhabitation.
 
-
+* R
 
