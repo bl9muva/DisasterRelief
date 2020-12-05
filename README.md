@@ -6,4 +6,6 @@ Here, we use different models to determine the location of blue-tarps in a serie
 The goal is to locate the areas covered by blue-tarp, likely spots for human inhabitation.
 
 * R
+* Model Building, Data Mining
+* KNN, LDA, QDA, Logistic Regression, Random Forest, Support Vector Machine
 
